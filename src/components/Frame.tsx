@@ -22,17 +22,137 @@ import { createStore } from "mipd";
 import { Label } from "~/components/ui/label";
 import { PROJECT_TITLE } from "~/lib/constants";
 
-function ExampleCard() {
+function NutsTrackerCard({ fid, profile }: { fid: number; profile?: any }) {
+  const [nutsData, setNutsData] = useState<{
+    sent: number;
+    received: number;
+    failedAttempts: number;
+    lastUpdated: number;
+  }>({ sent: 0, received: 0, failedAttempts: 0, lastUpdated: Date.now() });
+  
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const calculateDailyAllowance = useCallback(() => {
+    const now = new Date();
+    const lastReset = new Date(now);
+    
+    if (now.getUTCHours() < RESET_HOUR_UTC) {
+      lastReset.setUTCDate(now.getUTCDate() - 1);
+    }
+    
+    lastReset.setUTCHours(RESET_HOUR_UTC, 0, 0, 0);
+    return {
+      remaining: DAILY_ALLOWANCE - nutsData.sent,
+      nextReset: lastReset.getTime() + 86400000,
+    };
+  }, [nutsData.sent]);
+
+  const { remaining, nextReset } = calculateDailyAllowance();
+
+  const fetchNutsData = useCallback(async () => {
+    try {
+      const response = await fetch(
+        `https://api.neynar.com/v2/farcaster/feed?feed_type=filter&filter_type=fids&fids=${fid}&start_time=${START_DATE}`,
+        {
+          headers: {
+            "api_key": NEYNAR_API_KEY,
+            "client_id": NEYNAR_CLIENT_ID,
+          },
+        }
+      );
+      
+      const data = await response.json();
+      let sentNuts = 0;
+      let receivedNuts = 0;
+      
+      data.casts.forEach((cast: any) => {
+        // Count sent nuts
+        if (cast.author.fid === fid) {
+          sentNuts += (cast.text.match(/🥜/g) || []).length;
+        }
+        // Count received nuts in replies
+        if (cast.parent_author?.fid === fid) {
+          receivedNuts += (cast.text.match(/🥜/g) || []).length;
+        }
+      });
+
+      setNutsData(prev => ({
+        sent: sentNuts,
+        received: receivedNuts,
+        failedAttempts: prev.failedAttempts + (sentNuts > DAILY_ALLOWANCE ? 1 : 0),
+        lastUpdated: Date.now()
+      }));
+      setError("");
+    } catch (err) {
+      setError("Failed to fetch nuts data");
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [fid]);
+
+  useEffect(() => {
+    fetchNutsData();
+    const interval = setInterval(fetchNutsData, 1000);
+    return () => clearInterval(interval);
+  }, [fetchNutsData]);
+
+  if (error) return <div className="text-red-500">{error}</div>;
+  if (isLoading) return <div className="animate-pulse">Loading 🥜 stats...</div>;
+
   return (
-    <Card>
+    <Card className="animate-fade-in">
       <CardHeader>
-        <CardTitle>Welcome to the Frame Template</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          {profile?.pfp_url && (
+            <img 
+              src={profile.pfp_url} 
+              alt="Profile" 
+              className="w-8 h-8 rounded-full"
+            />
+          )}
+          <span>{profile?.username || `FID: ${fid}`}</span>
+        </CardTitle>
         <CardDescription>
-          This is an example card that you can customize or remove
+          🥜 Tracking since Feb 1, 2025
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <Label>Place content in a Card here.</Label>
+      
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="p-3 bg-purple-100 rounded-lg">
+            <Label className="text-xs">Total Received</Label>
+            <div className="text-2xl font-bold text-purple-600">
+              {nutsData.received}
+            </div>
+          </div>
+          
+          <div className="p-3 bg-amber-100 rounded-lg">
+            <Label className="text-xs">Daily Remaining</Label>
+            <div className="text-2xl font-bold text-amber-600">
+              {remaining > 0 ? remaining : 0}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex justify-between text-sm">
+            <span>Sent Today:</span>
+            <span className="font-semibold">{nutsData.sent}/30</span>
+          </div>
+          
+          <div className="h-2 bg-gray-200 rounded-full">
+            <div 
+              className="h-full bg-purple-500 rounded-full transition-all duration-500"
+              style={{ width: `${(nutsData.sent / 30) * 100}%` }}
+            />
+          </div>
+        </div>
+
+        <div className="text-sm text-gray-500">
+          Next reset in: {Math.floor((nextReset - Date.now()) / 3600000)} hours
+        </div>
       </CardContent>
     </Card>
   );
@@ -136,11 +256,29 @@ export default function Frame() {
         paddingRight: context?.client.safeAreaInsets?.right ?? 0,
       }}
     >
-      <div className="w-[300px] mx-auto py-2 px-2">
-        <h1 className="text-2xl font-bold text-center mb-4 text-gray-700 dark:text-gray-300">
+      <div className="w-[380px] mx-auto py-2 px-2">
+        <h1 className="text-3xl font-bold text-center mb-4 bg-gradient-to-r from-purple-600 to-amber-500 bg-clip-text text-transparent">
           {PROJECT_TITLE}
         </h1>
-        <ExampleCard />
+        
+        <div className="flex gap-2 mb-4">
+          <button
+            onClick={() => sdk.actions.post({
+              text: "Check my 🥜 status!",
+              url: window.location.href,
+            })}
+            className="flex-1 bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg transition-all"
+          >
+            Share It
+          </button>
+        </div>
+
+        {context?.frameData?.fid && (
+          <NutsTrackerCard 
+            fid={context.frameData.fid} 
+            profile={context.frameData.user}
+          />
+        )}
       </div>
     </div>
   );
