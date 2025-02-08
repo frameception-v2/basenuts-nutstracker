@@ -6,6 +6,14 @@ import sdk, {
   SignIn as SignInCore,
   type Context,
 } from "@farcaster/frame-sdk";
+import Image from "next/image";
+import { 
+  NEYNAR_API_KEY,
+  NEYNAR_CLIENT_ID,
+  START_DATE,
+  DAILY_ALLOWANCE,
+  RESET_HOUR_UTC
+} from "~/lib/constants";
 import {
   Card,
   CardHeader,
@@ -106,10 +114,13 @@ function NutsTrackerCard({ fid, profile }: { fid: number; profile?: any }) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           {profile?.pfp_url && (
-            <img 
-              src={profile.pfp_url} 
-              alt="Profile" 
+            <Image
+              src={profile.pfp_url}
+              alt="Profile"
+              width={32}
+              height={32}
               className="w-8 h-8 rounded-full"
+              unoptimized // Farcaster already provides optimized images
             />
           )}
           <span>{profile?.username || `FID: ${fid}`}</span>
